@@ -66,6 +66,7 @@ client.get('users/lookup', {'screen_name': following.toString()}, function(err, 
   var toFollow = reply.map(r => r.id);
   var stream = client.stream('statuses/filter', {follow: toFollow.toString()});
 
+  console.log('Started Trump\'s Echo');
   stream.on('data', function(tweet){
     if(toFollow.indexOf(tweet.user.id) !== -1){
       retweet(tweet);
