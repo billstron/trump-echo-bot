@@ -1,5 +1,59 @@
 require('dotenv').config();
 var Twitter = require('twitter');
+var fs = require('fs');
+var csv = require('csv');
+var Q = require('q');
+
+var inputFile = 'input.csv';
+var following = ['realDonaldTrump'];
+
+function getTrumpQuote(){
+  function pickOne(array){
+    return array[Math.floor(Math.random() * array.length)];
+  }
+
+  return Q.nfcall(fs.readFile, inputFile, 'utf8')
+    .then(function(data){
+      return Q.nfcall(csv.parse, data, {columns: true, trim: true});
+    })
+    .then(function(items){
+      var obj = {};
+      function pickOut(array, key){
+        return array.reduce(function(accum, value){
+          if(value[key]){
+            accum.push(value[key]);
+          }
+          return accum;
+        }, []);
+      }
+      obj.nouns = pickOut(items, 'nouns');
+      obj.adjetives = pickOut(items, 'adjetives');
+      obj.phrases = pickOut(items, 'phrases');
+      return obj;
+    })
+    .then(function(obj){
+      var noun = pickOne(obj.nouns);
+      var adjetive = pickOne(obj.adjetives);
+      var phrase = eval('`' + pickOne(obj.phrases) + '`');
+      return phrase;
+    });
+}
+
+function retweet(tweet) {
+  return getTrumpQuote()
+    .then(function(status){
+      console.log(status);
+      var url = 'https://twitter.com/' + tweet.user.screen_name + '/statuses/' + tweet.id_str;
+      return Q.ninvoke(client, 'post', 'statuses/update', {status: status + ' ' + url})
+    })
+    .then(function(tweet){
+      console.log('submitted');
+      console.log('================');
+    })
+    .catch(function(ex){
+      console.error(ex);
+    });
+}
 
 var client = new Twitter({
   consumer_key: process.env.TWITTER_CONSUMER_KEY,
@@ -8,36 +62,15 @@ var client = new Twitter({
   access_token_secret: process.env.TWITTER_ACCESS_TOKEN_SECRET
 });
 
-function getMadLibs(){
-  return "Making The Internet great again!";
-}
+client.get('users/lookup', {'screen_name': following.toString()}, function(err, reply, response){
+  var toFollow = reply.map(r => r.id);
+  var stream = client.stream('statuses/filter', {follow: toFollow.toString()});
 
-function RetweetIt(tweet){
-  var url = 'https://twitter.com/' + tweet.user.screen_name + '/statuses/' + tweet.id_str;
-  var status = getMadLibs();
-  client.post('statuses/update', {status: status + ' ' + url}, function(error, tweet) {
-    if (error) {
-      console.error(error);
+  stream.on('data', function(tweet){
+    if(toFollow.indexOf(tweet.user.id) !== -1){
+      retweet(tweet);
     }
   });
-}
 
-client.get('users/lookup', {'screen_name': 'realDonaldTrump'}, function(error, reply, response) {
-   var trump  = reply[0];
-
-   var toFollow = [];
-   toFollow.push(trump.id);
-
-   var stream = client.stream('statuses/filter', {follow: toFollow.toString()});
-
-   stream.on('data', function(tweet) {
-     if(tweet.user.id == trump.id){
-       RetweetIt(tweet);
-       console.log(tweet.text);
-       console.log('================');
-     }
-   });
-
-   stream.on('error', e => console.error(e));
-
+  stream.on('error', e => console.error(e));
 });
